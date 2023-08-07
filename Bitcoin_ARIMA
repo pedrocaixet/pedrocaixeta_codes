@@ -1,0 +1,205 @@
+Utilizando modelos de análise univariada para previsão: 
+O método utilizado foi do SARIMA. É o método de previsão mais utilizado quando não estão disponíveis variáveis preditoras.
+
+***************************************************************************************************************************************************************************************************************************
+# Import libraries
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from scipy import stats
+import statsmodels.api as sm
+import warnings
+from itertools import product
+from datetime import datetime
+warnings.filterwarnings('ignore')
+plt.style.use('seaborn-poster')
+import yfinance as yf
+
+start = datetime(2014,12,9)
+end = datetime.now().date().isoformat()
+symbol = "BTC-USD"
+
+df = yf.download(symbol, start=start, end=end)
+
+from datetime import datetime
+
+start = datetime(2014,12,9)
+end = datetime.now().date().isoformat()
+symbol = "BTC-USD" 
+
+df = yf.download(symbol, start=start, end=end)
+df['Date'] = pd.to_datetime(df.index, unit='s')
+
+# Resampling to daily frequency
+df = df.resample('D').mean()
+
+# Resampling to monthly frequency
+df_month = df.resample('M').mean()
+
+# Resampling to annual frequency
+df_year = df.resample('A-DEC').mean()
+
+# Resampling to quarterly frequency
+df_Q = df.resample('Q-DEC').mean()
+
+# PLOTS
+fig = plt.figure(figsize=[15, 7])
+plt.suptitle('Bitcoin exchanges, mean USD', fontsize=22)
+
+plt.subplot(221)
+plt.plot(df.Close, '-', label='By Days')
+plt.legend()
+
+plt.subplot(222)
+plt.plot(df_month['Close'], '-', label='By Months')
+
+plt.subplot(223)
+plt.plot(df_month['Close'], '-', label='By Quarters')
+plt.legend()
+
+plt.subplot(224)
+plt.plot(df_month['Close'], '-', label='By Years')
+plt.legend()
+
+# plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=[15,7])
+sm.tsa.seasonal_decompose(df_month['Close']).plot()
+print("Dickey–Fuller test: p=%f" % sm.tsa.stattools.adfuller(df_month['Close'])[1])
+plt.show()
+
+df_month['Weighted_Price_box'], lmbda = stats.boxcox(df_month['Close'])
+print("Dickey–Fuller test: p=%f" % sm.tsa.stattools.adfuller(df_month['Close'])[1])
+
+df_month['prices_box_diff'] = df_month['Weighted_Price_box'] - df_month['Weighted_Price_box'].shift(12)
+print("Dickey–Fuller test: p=%f" % sm.tsa.stattools.adfuller(df_month['prices_box_diff'][12:])[1]
+
+# Regular differentiation
+df_month['prices_box_diff2'] = df_month.prices_box_diff - df_month.prices_box_diff.shift(1)
+plt.figure(figsize=(15,7))
+
+# STL-decomposition
+sm.tsa.seasonal_decompose(df_month.prices_box_diff2[13:]).plot()   
+print("Dickey–Fuller test: p=%f" % sm.tsa.stattools.adfuller(df_month.prices_box_diff2[13:])[1])
+
+plt.show()
+
+plt.figure(figsize=(15,7))
+ax = plt.subplot(211)
+sm.graphics.tsa.plot_acf(df_month.prices_box_diff2[13:].values.squeeze(), lags=48, ax=ax)
+ax = plt.subplot(212)
+sm.graphics.tsa.plot_pacf(df_month.prices_box_diff2[13:].values.squeeze(), lags=20, ax=ax)
+plt.tight_layout()
+plt.show()
+
+# Initial approximation of parameters
+Qs = range(0, 2)
+qs = range(0, 3)
+Ps = range(0, 3)
+ps = range(0, 3)
+D=1
+d=1
+parameters = product(ps, qs, Ps, Qs)
+parameters_list = list(parameters)
+len(parameters_list)
+
+# Model Selection
+results = []
+best_aic = float("inf")
+warnings.filterwarnings('ignore')
+for param in parameters_list:
+    try:
+        model=sm.tsa.statespace.SARIMAX(df_month.Weighted_Price_box, order=(param[0], d, param[1]), 
+                                        seasonal_order=(param[2], D, param[3], 12)).fit(disp=-1)
+    except ValueError:
+        print('wrong parameters:', param)
+        continue
+    aic = model.aic
+    if aic < best_aic:
+        best_model = model
+        best_aic = aic
+        best_param = param
+    results.append([param, model.aic])
+
+# Best Models
+result_table = pd.DataFrame(results)
+result_table.columns = ['parameters', 'aic']
+print(result_table.sort_values(by = 'aic', ascending=True).head())
+print(best_model.summary())
+
+# STL-decomposition
+plt.figure(figsize=(15,7))
+plt.subplot(211)
+best_model.resid[13:].plot()
+plt.ylabel(u'Residuals')
+ax = plt.subplot(212)
+sm.graphics.tsa.plot_acf(best_model.resid[13:].values.squeeze(), lags=48, ax=ax)
+
+print("Dickey–Fuller test:: p=%f" % sm.tsa.stattools.adfuller(best_model.resid[13:])[1])
+
+plt.tight_layout()
+plt.show()
+
+# Inverse Box-Cox Transformation Function
+def invboxcox(y,lmbda):
+   if lmbda == 0:
+      return(np.exp(y))
+   else:
+      return(np.exp(np.log(lmbda*y+1)/lmbda))
+
+
+# Predição para perídos passados 
+df_month2 = df_month[['Close']]
+date_list = [datetime(2017, 6, 30), datetime(2017, 7, 31), datetime(2017, 8, 31), datetime(2017, 9, 30),              datetime(2017, 10, 31), datetime(2017, 11, 30), datetime(2017, 12, 31), datetime(2018, 1, 31),             datetime(2018, 1, 28)]
+future = pd.DataFrame(index=date_list, columns=df_month.columns)
+df_month2 = pd.concat([df_month2, future])
+df_month2['forecast'] = invboxcox(best_model.predict(start=0, end=75), lmbda)
+plt.figure(figsize=(15,7))
+df_month2.Close.plot()
+df_month2.forecast.plot(color='r', ls='--', label='Predicted Close')
+plt.legend()
+plt.title('Bitcoin exchanges, by months')
+plt.ylabel('mean USD')
+plt.show()
+
+# Predição para o presente momento 
+df_month2 = df_month[['Close']]
+date_list = pd.date_range(start=df_month2.index[-1], periods=24, freq='M')[1:]
+future = pd.DataFrame(index=date_list, columns=df_month.columns)
+df_month2 = pd.concat([df_month2, future])
+df_month2['forecast'] = invboxcox(best_model.predict(start=0, end=99), lmbda)
+plt.figure(figsize=(15,7))
+df_month2.Close.plot()
+df_month2.forecast.plot(color='r', ls='--', label='Predicted Close')
+plt.legend()
+plt.title('Bitcoin exchanges, by months')
+plt.ylabel('mean USD')
+plt.show()
+
+# Predição para períodos futuros 
+
+df_month2 = df_month[['Close']]
+date_list = pd.date_range(start='2017-06-30', end='2024-12-31', freq='M')
+future = pd.DataFrame(index=date_list, columns=df_month.columns)
+df_month2 = pd.concat([df_month2, future])
+df_month2['forecast'] = invboxcox(best_model.predict(start=0, end=len(df_month2)), lmbda)
+plt.figure(figsize=(15,7))
+df_month2.Close.plot()
+df_month2.forecast.plot(color='r', ls='--', label='Predicted Close')
+plt.legend()
+plt.title('Bitcoin exchanges, by months')
+plt.ylabel('mean USD')
+plt.show()
+
+
+
+
+
+
+
+
+
+
