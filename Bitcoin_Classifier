@@ -1,0 +1,238 @@
+#Modelo de Classificação elaborado para realizar previsões acerca do preço do Bitcoin#
+#Foram utilizados variáveis binárias para capturar o efeito do halving, um dos grandes responsáveis pela característica deflacionária do Bitcoin# 
+
+**************************************************************************** Código ************************************************************************************************************
+
+import datetime
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import pandas_datareader.data as web
+
+from sklearn import (
+    linear_model, metrics, neural_network, pipeline, preprocessing, model_selection
+)
+
+import matplotlib.pyplot as plt
+%matplotlib inline
+from datetime import datetime
+
+import yfinance as yf
+start = datetime(2014,12,9)
+end = datetime.now().date().isoformat()
+
+symbol = "BTC-USD"
+df = yf.download(symbol, start=start, end=end)
+df.tail(2)
+df['Adj Close'].plot(figsize=(15,5))
+df = df.drop(columns=['Volume'])
+
+df.plot(figsize=(15,5))
+
+#recortes dos halvings anteriores - 6 meses
+## 9 de hulho de 2016
+
+start = datetime(2016,1,9)
+end = datetime(2017,1,9) #datetime.now().date().isoformat()
+symbol = "BTC-USD"
+df = yf.download(symbol, start=start, end=end)
+
+df['Adj Close'].plot(figsize=(15,5))
+
+start = datetime(2016, 1, 9)
+end = datetime(2017, 1, 9)
+symbol = "BTC-USD"
+df = yf.download(symbol, start=start, end=end)
+
+plt.figure(figsize=(15, 5))
+df['Adj Close'].plot()
+plt.axvline(x=datetime(2016, 7, 9), color='red', linestyle='--', label='halving de 2016')
+plt.legend()
+plt.show()
+
+## Halving de 2020 - 11 de maio de 2020 - 6 meses
+start = datetime(2019,12,11)
+end = datetime(2020,11,11) #datetime.now().date().isoformat()
+symbol = "BTC-USD"
+df = yf.download(symbol, start=start, end=end)
+df['Adj Close'].plot(figsize=(15,5))
+
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+start = datetime(2019, 12, 11)
+end = datetime(2020, 11, 11)
+symbol = "BTC-USD"
+df = yf.download(symbol, start=start, end=end)
+
+plt.figure(figsize=(15, 5))
+df['Adj Close'].plot()
+plt.axvline(x=datetime(2020, 5, 11), color='red', linestyle='--', label='halving de 2020')
+plt.legend()
+plt.show()
+
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
+
+start = datetime(2014,12,9)
+end = datetime.now().date().isoformat()
+symbol = "BTC-USD"
+df = yf.download(symbol, start=start, end=end)
+
+# Remover a coluna 'Adj Close'
+df.drop('Adj Close', axis=1, inplace=True)
+
+# Criar variáveis dummy para os períodos entre 9 de janeiro de 2016 e 9 de Janeiro de 2017 e entre 11 de novembro de 2019 e 11 de novembro de 2020
+df['Dummy1'] = np.where((df.index >= '2016-01-09') & (df.index < '2017-01-09'), 1, 0)
+df['Dummy2'] = np.where((df.index >= '2019-11-11') & (df.index < '2020-11-11'), 1, 0)
+
+df['Subiu_ou_caiu'] = np.where(df['Close'].shift(-1) > df['Close'], '0', '1')
+df.dropna(inplace=True)  # Remover as linhas com valores ausentes resultantes dos deslocamentos
+
+# Adicionar deslocamentos de -1, -2 e -3 para a coluna 'Close'
+df['Close_1'] = df['Close'].shift(-1)
+df['Close_2'] = df['Close'].shift(-2)
+df['Close_3'] = df['Close'].shift(-3)
+
+df.dropna(inplace=True)  # Remover as linhas com valores ausentes resultantes dos deslocamentos
+
+# Adicionar uma coluna para a média móvel dos últimos 8 dias dos dados de fechamento
+df['Close_8MA'] = df['Close'].rolling(window=8).mean()
+
+# Remover as linhas com valores ausentes resultantes da média móvel
+df.dropna(inplace=True)
+
+
+# Separar os dados em recursos (X) e rótulos (y)
+X = df[[ 'Close_8MA', 'Close_1', 'Close_2', 'Close_3', 'Dummy1', 'Dummy2']]
+y = df['Subiu_ou_caiu']
+
+# Dividir os dados em conjuntos de treinamento e teste
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.30, random_state=200)
+
+# Treinar o modelo de regressão logística
+logmodel = LogisticRegression()
+logmodel.fit(X_train,y_train)
+
+# Realizar as previsões para o conjunto de teste
+predictions = logmodel.predict(X_test)
+
+# Gerando um relatório de classificação para o modelo Logistic Regression
+print("Logistic Regression Classifier:\n", classification_report(y_test, predictions))
+
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+
+# Treinando um modelo Gradient Boosting
+gb_clf = GradientBoostingClassifier(random_state=42)
+gb_clf.fit(X_train, y_train)
+
+# Fazendo previsões com o modelo Gradient Boosting
+y_pred_gb = gb_clf.predict(X_test)
+
+# Gerando um relatório de classificação para o modelo Gradient Boosting
+print("Gradient Boosting Classifier:\n", classification_report(y_test, y_pred_gb))
+
+# Treinando um modelo Random Forest
+rf_clf = RandomForestClassifier(random_state=42)
+rf_clf.fit(X_train, y_train)
+
+# Fazendo previsões com o modelo Random Forest
+y_pred_rf = rf_clf.predict(X_test)
+
+# Gerando um relatório de classificação para o modelo Random Forest
+print("Random Forest Classifier:\n", classification_report(y_test, y_pred_rf))
+
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Matriz de confusão para Regressão Logística
+cm_logmodel = confusion_matrix(y_test, predictions)
+
+# Plotar a matriz de confusão para Regressão Logística
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm_logmodel, annot=True, fmt="d", cmap="Blues")
+plt.title("Matriz de Confusão - Regressão Logística")
+plt.xlabel("Previsão")
+plt.ylabel("Valor Real")
+plt.show()
+
+# Matriz de confusão para Gradient Boosting Classifier
+cm_gb = confusion_matrix(y_test, y_pred_gb)
+
+# Plotar a matriz de confusão para Gradient Boosting Classifier
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm_gb, annot=True, fmt="d", cmap="Blues")
+plt.title("Matriz de Confusão - Gradient Boosting Classifier")
+plt.xlabel("Previsão")
+plt.ylabel("Valor Real")
+plt.show()
+
+# Matriz de confusão para Random Forest Classifier
+cm_rf = confusion_matrix(y_test, y_pred_rf)
+
+# Plotar a matriz de confusão para Random Forest Classifier
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm_rf, annot=True, fmt="d", cmap="Blues")
+plt.title("Matriz de Confusão - Random Forest Classifier")
+plt.xlabel("Previsão")
+plt.ylabel("Valor Real")
+plt.show()
+
+from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.preprocessing import LabelEncoder
+import matplotlib.pyplot as plt
+
+# Converter as classes em valores numéricos
+le = LabelEncoder()
+y_test = le.fit_transform(y_test)
+
+# Calcular as taxas de verdadeiros positivos e falsos positivos para o modelo de Regressão Logística
+y_pred_proba = logmodel.predict_proba(X_test)[:, 1]
+fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+auc_score = roc_auc_score(y_test, y_pred_proba)
+
+# Plotar a curva ROC para o modelo de Regressão Logística
+plt.plot(fpr, tpr, label=f'Logistic Regression (AUC = {auc_score:.3f})')
+plt.plot([0, 1], [0, 1], 'k--')
+plt.xlabel('Taxa de Falsos Positivos')
+plt.ylabel('Taxa de Verdadeiros Positivos')
+plt.title('Curva ROC para o modelo de Regressão Logística')
+plt.legend()
+plt.show()
+
+ Calcular as taxas de verdadeiros positivos e falsos positivos para o modelo Gradient Boosting
+y_pred_proba = gb_clf.predict_proba(X_test)[:, 1]
+fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+auc_score = roc_auc_score(y_test, y_pred_proba)
+
+# Plotar a curva ROC para o modelo Gradient Boosting
+fig, ax = plt.subplots(figsize=(8, 6))
+ax.plot(fpr, tpr)
+ax.plot([0, 1], [0, 1], 'k--')
+ax.set_xlabel('Taxa de Falsos Positivos')
+ax.set_ylabel('Taxa de Verdadeiros Positivos')
+ax.set_title(f'Curva ROC para Gradient Boosting (AUC = {auc_score:.3f})')
+plt.show()
+
+# Treinar o modelo Random Forest
+rf_clf = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+rf_clf.fit(X_train, y_train)
+
+# Calcular as taxas de verdadeiros positivos e falsos positivos para o modelo Random Forest
+y_pred_proba = rf_clf.predict_proba(X_test)[:, 1]
+fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+auc_score = roc_auc_score(y_test, y_pred_proba)
+
+# Plotar a curva ROC para o modelo Random Forest
+plt.plot(fpr, tpr)
+plt.plot([0, 1], [0, 1], 'k--')
+plt.xlabel('Taxa de Falsos Positivos')
+plt.ylabel('Taxa de Verdadeiros Positivos')
+plt.title(f'Curva ROC para o modelo Random Forest (AUC = {auc_score:.3f})')
+plt.show()
+
+
