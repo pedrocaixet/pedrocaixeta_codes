@@ -1,0 +1,168 @@
+## Código utiliza como base de dados os dados de consumo de energia anual do Brasil 
+## Dados disponíveis no site do IPEADATA - Na aba macroeconomia 
+************************************************************************************************************
+rm(list=ls())
+graphics.off()
+
+# Carregando as bibliotecas
+library(RSNNS)
+library(NeuralNetTools)
+library(readxl)
+
+#===================================================================================
+# CONFIGURACOES # RSM
+#------------------------------------------------------------------------------------
+sem <- 1
+ptr <- 0.2 
+proporcao_treinamento <- 1 - ptr 
+v_size <- c(10)
+v_maxit <- 30
+t_apr = 0.1
+#===================================================================================
+Dados_energia <- read_excel("C:/Users/Pc Gamer/Downloads/Dados_energia.xlsx")
+
+# RSM: Fazendo primeira coluna (ANO) como numerica
+Dados_energia$ANO = as.numeric(Dados_energia$ANO)
+
+# Tirar dados Missing
+za <- na.omit(Dados_energia)
+ano_corte <- round(nrow(za)*(1-ptr)) # RSM: fica + facil definir 1 variavel para ano de corte
+
+# RSM 
+
+# Fazendo grafico dos dados (na escala original)
+par(mfrow = c(1,1))
+plot(za$TOTAL, type = 'l', col = 'blue', lwd = 2,
+     ylim = c(0, max(za$TOTAL)), main = "Dados")
+lines(za$COMERCIAL, col = 'red', lwd = 2)
+lines(za$INDUSTRIAL, col = 'darkred', lwd = 2)
+lines(za$RESIDENCIAL, col = 'brown', lwd = 2)
+lines(za$ANO, col = 'darkgreen', lwd = 2)
+abline(v = ano_corte, lwd = 2)
+
+# Obs: veja que a serie de saida distoa muito das demais porque
+#       cresce muito rapido. Vamos tentar logaritmizar para melhorar
+#      isso.
+
+# Logaritmizando 
+lza <- log(za)
+#z$ANO = za$ANO # mantendo só ANO na escala original
+
+# Fazendo grafico dos dados na escala log
+par(mfrow = c(1,1))
+plot(lza$TOTAL, type = 'l', col = 'blue', lwd = 2,
+     ylim = c(0, max(lza$TOTAL)), main = "Dados em Log")
+lines(lza$COMERCIAL, col = 'red', lwd = 2)
+lines(lza$INDUSTRIAL, col = 'darkred', lwd = 2)
+lines(lza$RESIDENCIAL, col = 'brown', lwd = 2)
+lines(lza$ANO, col = 'darkgreen', lwd = 2)
+abline(v = ano_corte, lwd = 2)
+
+#normalizando
+z1 <- (lza$ANO - mean(lza$ANO))/sd(lza$ANO)
+z2 <- (lza$COMERCIAL - mean(lza$COMERCIAL))/sd(lza$COMERCIAL)
+z3 <- (lza$INDUSTRIAL - mean(lza$INDUSTRIAL))/sd(lza$INDUSTRIAL)
+z4 <- (lza$RESIDENCIAL - mean(lza$RESIDENCIAL))/sd(lza$RESIDENCIAL)
+z5 <- (lza$TOTAL - mean(lza$TOTAL))/sd(lza$TOTAL)
+z <- data.frame(cbind(z1,z2,z3,z4,z5))
+
+names(z) = c('ANO','COMERCIAL','INDUSTRIAL','RESIDENCIAL', 'TOTAL')
+
+
+# RSM: ATENCAO: a RNA vai prever na escala em log)
+
+# Definir a semente 
+# RSM: ponha a semente log antes do comando 'mlp()'
+set.seed(1)
+
+# Defina a proporção para divisão dos dados   RSM: PASSEI LA PARA CIMA
+proporcao_treinamento <- 0.8 
+
+# Calcule o índice para divisão dos dados
+indice_divisao <- floor(proporcao_treinamento * nrow(z))
+
+# Divida os dados em treinamento e teste
+dados_treinamento <- z[1:indice_divisao, ]
+dados_teste <- z[(indice_divisao + 1):nrow(z), ]
+
+# Converter os dados de treinamento em uma matriz (inclua "ANO")
+dados_treinamento_matrix <- as.matrix(dados_treinamento[, c("ANO","COMERCIAL", "RESIDENCIAL", "INDUSTRIAL")])
+dados_treinamento_matrix <- dados_treinamento[,-5]
+x.te <- dados_teste[,-5]
+
+# Definir a variável de saída (y)
+y <- dados_treinamento[,5]
+y.te <- dados_teste[,5]
+
+# Construir o modelo MLP
+modelo <- mlp(x = dados_treinamento_matrix, y = y, learnFuncParams = c(0.5,0), size = c(256), maxit = 1000)
+set.seed(sem)
+modelo <- mlp(x = dados_treinamento_matrix, 
+              y = y, 
+              learnFuncParams = c(t_apr), 
+              size = v_size, 
+              maxit = v_maxit,
+              shufflePatterns = FALSE, #
+              linOut = TRUE,           # PRECISA TER ESSES 2 PARAMETROS
+              inputsTest = x.te,     #  Esses últimos 2 parametros sao
+              targetsTest = y.te)   # opcionais mas uteis para ver evolucao EQM
+
+# olhando resultados
+modelo
+
+# Mostrando evolucao dos erros de treinamento vs teste
+# (Validacao Cruzada)
+#========================================================================
+train.err = modelo$IterativeFitError
+test.err = modelo$IterativeTestError
+par(mfrow=c(1,1))
+plot(train.err, type = 'l', col = 'blue', ylab = NULL,
+     main = "EQM:Treinamento vs Teste (escala Log)",
+     ylim = c(-10,max(train.err)))
+lines(test.err, col = "red")
+legend("topright", lty = c(1,1), col = c("blue","red"), legend = c("train","test"))
+head(cbind(train.err,test.err))
+tail(cbind(train.err,test.err))
+#========================================================================
+
+# Converter os dados de teste em uma matriz
+dados_teste_matrix <- as.matrix(dados_teste[, c("COMERCIAL", "RESIDENCIAL", "INDUSTRIAL")])
+
+# Faça previsões com o modelo treinado
+previsoes <- predict(modelo, x.te)
+
+# desnormalizando as previsoes
+previsoes.p <- sd(lza$TOTAL)*previsoes + mean(lza$TOTAL)
+y.te.p <- lza$TOTAL[(indice_divisao + 1):nrow(z)]
+cbind(y.te.p,previsoes.p)
+
+# tabela e grafico das previsoes em escala log
+#print(previsoes)
+par(mfrow = c(1,1))
+plot(y.te.p, type = 'l', col = 'blue', lwd = 2,
+     ylim = c(12,15), main = "Real vs Previsto em Log ")
+lines(previsoes.p, col = 'red', lwd = 2)
+
+# previsoes na escala original
+previsoes.o <- exp(previsoes.p)
+y.te.o <- exp(y.te.p)
+cbind(previsoes.o,y.te.o)
+plot(y.te.o, type = 'l', col = 'blue', lwd = 2,
+     ylim = c(400000,500000), main = "Real vs Previsto Escala Original")
+lines(previsoes.o, col = 'red', lwd = 2)
+
+# Calcular a métrica de desempenho MAE e RMSEE
+#mae <- mean(abs(previsoes - dados_teste))
+#rmse <- sqrt(mean((previsoes - dados_teste)^2))
+mae <- mean(abs(previsoes.o - y.te.o))
+rmse <- sqrt(mean((previsoes.o - y.te.o)^2))
+
+
+# Exiba as métricas de desempenho
+cat("MAE:", mae, "\n")
+cat("RMSE:", rmse, "\n")
+
+z[,1]
+
+# Representação da interação entre camadas
+plotnet(modelo)
